@@ -278,79 +278,75 @@ python -m pytest tests/ -v
 
 ## 10. Test Scenarios
 
-| #   | Scenario                                              | Test file                    | Key assertion                            |
-| --- | ----------------------------------------------------- | ---------------------------- | ---------------------------------------- |
-| 1   | Stop words produce empty keyword list                 | `test_keyword_extractor.py`  | `keywords == []`                         |
-| 2   | Keywords lowercased and punctuation stripped          | `test_keyword_extractor.py`  | `"revenue" in keywords`                  |
-| 3   | Digits excluded from keywords                         | `test_keyword_extractor.py`  | `"123" not in keywords`                  |
-| 4   | Finance topic detected from vocabulary                | `test_keyword_extractor.py`  | `"finance" in topics`                    |
-| 5   | Technology / health topics detected                   | `test_keyword_extractor.py`  | `"technology" in topics`                 |
-| 6   | Defaults to `"general"` when no topic matches         | `test_keyword_extractor.py`  | `topics == ["general"]`                  |
-| 7   | Multiple topics detected simultaneously               | `test_keyword_extractor.py`  | `len(topics) == 3`                       |
-| 8   | Max 20 keywords returned                              | `test_keyword_extractor.py`  | `len(keywords) <= 20`                    |
-| 9   | Frequency ordering respected                          | `test_keyword_extractor.py`  | `keywords[0] == "revenue"`               |
-| 10  | Empty string returns empty keywords                   | `test_keyword_extractor.py`  | `keywords == []`                         |
-| 11  | Positive text classified correctly                    | `test_sentiment_detector.py` | `sentiment == "positive"`                |
-| 12  | Negative text classified correctly                    | `test_sentiment_detector.py` | `sentiment == "negative"`                |
-| 13  | Neutral text classified correctly                     | `test_sentiment_detector.py` | `sentiment == "neutral"`                 |
-| 14  | `"not good"` → negative (negation flips positive)     | `test_sentiment_detector.py` | `sentiment == "negative"`                |
-| 15  | `"not terrible"` → positive (negation flips negative) | `test_sentiment_detector.py` | `sentiment == "positive"`                |
-| 16  | `"not good not bad"` → neutral (two negations cancel) | `test_sentiment_detector.py` | `sentiment == "neutral"`                 |
-| 17  | Empty string → neutral, confidence 0.0                | `test_sentiment_detector.py` | `confidence == 0.0`                      |
-| 18  | Confidence always in `[0.0, 1.0]`                     | `test_sentiment_detector.py` | `0.0 <= confidence <= 1.0`               |
-| 19  | Score and confidence rounded to 2 decimal places      | `test_sentiment_detector.py` | `score == round(score, 2)`               |
-| 20  | Punctuation does not break scoring                    | `test_sentiment_detector.py` | `sentiment == "positive"`                |
-| 21  | Text truncated at 4 000 words                         | `test_text_summariser.py`    | `word_count <= 4000`, ends `[truncated]` |
-| 22  | Text under limit not truncated                        | `test_text_summariser.py`    | `"[truncated]" not in cleaned_text`      |
-| 23  | Triple blank lines collapsed to double                | `test_text_summariser.py`    | `"                                       |
-
-" not in cleaned_text`|
-| 24 | Double blank lines preserved |`test_text_summariser.py`|`"
-
-" in cleaned_text`|
-| 25 | Leading/trailing whitespace stripped |`test_text_summariser.py`|`cleaned_text == "hello world"`|
-| 26 | Word count correct |`test_text_summariser.py`|`word_count == 5`|
-| 27 |`extract_keywords`and`detect_sentiment`re-exported |`test_text_summariser.py`|`callable(extract_keywords)`|
-| 28 |`.txt`file read as string |`test_file_reader.py`|`isinstance(content, str)`|
-| 29 |`.md`file read as string, content preserved |`test_file_reader.py`|`"# Title" in content`|
-| 30 |`.json`file parsed to dict |`test_file_reader.py`|`isinstance(content, dict)`|
-| 31 |`.json`list parsed correctly |`test_file_reader.py`|`content == [1, 2, 3]`|
-| 32 |`.csv`content is list of dicts |`test_file_reader.py`|`isinstance(content[0], dict)`|
-| 33 |`.csv`row and column counts correct |`test_file_reader.py`|`row_count == 2`, `col_count == 3`|
-| 34 | Empty`.txt`file returns empty string |`test_file_reader.py`|`content == ""`|
-| 35 | Unsupported extension raises`ValueError`|`test_file_reader.py`|`assertRaises(ValueError)`|
-| 36 | Returns`FileReadResult`Pydantic model |`test_file_reader.py`|`isinstance(result, FileReadResult)`|
-| 37 | Column names extracted correctly |`test_csv_analyser.py`|`columns == ["name", "age", "score"]`|
-| 38 | Row and column counts correct |`test_csv_analyser.py`|`row_count == 3`, `col_count == 2`|
-| 39 | Mean / min / max / std present per numeric column |`test_csv_analyser.py`|`"mean" in stats["val"]`|
-| 40 | Mean value correct |`test_csv_analyser.py`|`stats["val"]["mean"] == 20.0`|
-| 41 | Min and max correct |`test_csv_analyser.py`|`min == 10.0`, `max == 30.0`|
-| 42 | Non-numeric columns excluded from stats |`test_csv_analyser.py`|`"name" not in stats`|
-| 43 | Missing values counted per column |`test_csv_analyser.py`|`missing["b"] == 1`|
-| 44 | Zero missing values reported correctly |`test_csv_analyser.py`|`missing["a"] == 0`|
-| 45 | Stats rounded to 4 decimal places |`test_csv_analyser.py`|`val == round(val, 4)`|
-| 46 | Single-row CSV handled without error |`test_csv_analyser.py`|`row_count == 1`|
-| 47 |`report.md`written to disk |`test_report_writer.py`|`Path("report.md").exists()`|
-| 48 | Disk content matches`markdown`field |`test_report_writer.py`|`disk == result.markdown`|
-| 49 |`report_path`is absolute |`test_report_writer.py`|`Path(report_path).is_absolute()`|
-| 50 | File path appears in Markdown output |`test_report_writer.py`|`"myfile.csv" in markdown`|
-| 51 | Query appears in Markdown output |`test_report_writer.py`|`"What are the totals?" in markdown`|
-| 52 | Summary appears in Markdown output |`test_report_writer.py`|`"Revenue grew by 10%." in markdown`|
-| 53 | Keywords appear in Markdown output |`test_report_writer.py`|`"revenue, profit" in markdown`|
-| 54 | Sentiment appears in Markdown output |`test_report_writer.py`|`"positive (0.85)" in markdown`|
-| 55 | Analysis appears in Markdown output |`test_report_writer.py`|`"Mean value is 42." in markdown`|
-| 56 | Report contains`# File Analysis Report`header |`test_report_writer.py`|`assertIn("# File Analysis Report", markdown)`|
-| 57 | Empty fields still produce valid report |`test_report_writer.py`|`"# File Analysis Report" in markdown`|
-| 58 | Returns`ReportResult`Pydantic model |`test_report_writer.py`|`isinstance(result, ReportResult)`|
-| 59 | Text-only Gemini response → report produced |`test_agent_loop.py`|`"# File Analysis Report" in result`|
-| 60 | Text-only response content included in report |`test_agent_loop.py`|`"Direct answer here." in result`|
-| 61 |`write_report`tool call exits loop and returns Markdown |`test_agent_loop.py`|`"# File Analysis Report" in result`|
-| 62 |`write_report`call count — send_message called once only |`test_agent_loop.py`|`send_message.call_count == 1`|
-| 63 | Max-iteration fallback produces report |`test_agent_loop.py`|`Path("report.md").exists()`|
-| 64 | Unknown tool name →`{"error": ...}`dict |`test_agent_loop.py`|`"error" in result`|
-| 65 | Tool exception →`{"error": ...}`dict |`test_agent_loop.py`|`"error" in result`|
-| 66 |`\_dispatch`returns dict for Pydantic result |`test_agent_loop.py`|`isinstance(result, dict)`|
-| 67 |`run_agent`always returns a string |`test_agent_loop.py`|`isinstance(result, str)` |
+| #   | Scenario                                                 | Test file                    | Key assertion                                  |
+| --- | -------------------------------------------------------- | ---------------------------- | ---------------------------------------------- |
+| 1   | Stop words produce empty keyword list                    | `test_keyword_extractor.py`  | `keywords == []`                               |
+| 2   | Keywords lowercased and punctuation stripped             | `test_keyword_extractor.py`  | `"revenue" in keywords`                        |
+| 3   | Digits excluded from keywords                            | `test_keyword_extractor.py`  | `"123" not in keywords`                        |
+| 4   | Finance topic detected from vocabulary                   | `test_keyword_extractor.py`  | `"finance" in topics`                          |
+| 5   | Technology / health topics detected                      | `test_keyword_extractor.py`  | `"technology" in topics`                       |
+| 6   | Defaults to `"general"` when no topic matches            | `test_keyword_extractor.py`  | `topics == ["general"]`                        |
+| 7   | Multiple topics detected simultaneously                  | `test_keyword_extractor.py`  | `len(topics) == 3`                             |
+| 8   | Max 20 keywords returned                                 | `test_keyword_extractor.py`  | `len(keywords) <= 20`                          |
+| 9   | Frequency ordering respected                             | `test_keyword_extractor.py`  | `keywords[0] == "revenue"`                     |
+| 10  | Empty string returns empty keywords                      | `test_keyword_extractor.py`  | `keywords == []`                               |
+| 11  | Positive text classified correctly                       | `test_sentiment_detector.py` | `sentiment == "positive"`                      |
+| 12  | Negative text classified correctly                       | `test_sentiment_detector.py` | `sentiment == "negative"`                      |
+| 13  | Neutral text classified correctly                        | `test_sentiment_detector.py` | `sentiment == "neutral"`                       |
+| 14  | `"not good"` → negative (negation flips positive)        | `test_sentiment_detector.py` | `sentiment == "negative"`                      |
+| 15  | `"not terrible"` → positive (negation flips negative)    | `test_sentiment_detector.py` | `sentiment == "positive"`                      |
+| 16  | `"not good not bad"` → neutral (two negations cancel)    | `test_sentiment_detector.py` | `sentiment == "neutral"`                       |
+| 17  | Empty string → neutral, confidence 0.0                   | `test_sentiment_detector.py` | `confidence == 0.0`                            |
+| 18  | Confidence always in `[0.0, 1.0]`                        | `test_sentiment_detector.py` | `0.0 <= confidence <= 1.0`                     |
+| 19  | Score and confidence rounded to 2 decimal places         | `test_sentiment_detector.py` | `score == round(score, 2)`                     |
+| 20  | Punctuation does not break scoring                       | `test_sentiment_detector.py` | `sentiment == "positive"`                      |
+| 21  | Text truncated at 4 000 words                            | `test_text_summariser.py`    | `word_count <= 4000`, ends `[truncated]`       |
+| 22  | Text under limit not truncated                           | `test_text_summariser.py`    | `"[truncated]" not in cleaned_text`            |
+| 23  | Triple blank lines collapsed to double                   | `test_text_summariser.py`    | `"" not in cleaned_text`                       |
+| 24  | Double blank lines preserved                             | `test_text_summariser.py`    | `"" in cleaned_text`                           |
+| 25  | Leading/trailing whitespace stripped                     | `test_text_summariser.py`    | `cleaned_text == "hello world"`                |
+| 26  | Word count correct                                       | `test_text_summariser.py`    | `word_count == 5`                              |
+| 27  | `extract_keywords`and`detect_sentiment`re-exported       | `test_text_summariser.py`    | `callable(extract_keywords)`                   |
+| 28  | `.txt`file read as string                                | `test_file_reader.py`        | `isinstance(content, str)`                     |
+| 29  | `.md`file read as string, content preserved              | `test_file_reader.py`        | `"# Title" in content`                         |
+| 30  | `.json`file parsed to dict                               | `test_file_reader.py`        | `isinstance(content, dict)`                    |
+| 31  | `.json`list parsed correctly                             | `test_file_reader.py`        | `content == [1, 2, 3]`                         |
+| 32  | `.csv`content is list of dicts                           | `test_file_reader.py`        | `isinstance(content[0], dict)`                 |
+| 33  | `.csv`row and column counts correct                      | `test_file_reader.py`        | `row_count == 2`, `col_count == 3`             |
+| 34  | Empty`.txt`file returns empty string                     | `test_file_reader.py`        | `content == ""`                                |
+| 35  | Unsupported extension raises`ValueError`                 | `test_file_reader.py`        | `assertRaises(ValueError)`                     |
+| 36  | Returns`FileReadResult`Pydantic model                    | `test_file_reader.py`        | `isinstance(result, FileReadResult)`           |
+| 37  | Column names extracted correctly                         | `test_csv_analyser.py`       | `columns == ["name", "age", "score"]`          |
+| 38  | Row and column counts correct                            | `test_csv_analyser.py`       | `row_count == 3`, `col_count == 2`             |
+| 39  | Mean / min / max / std present per numeric column        | `test_csv_analyser.py`       | `"mean" in stats["val"]`                       |
+| 40  | Mean value correct                                       | `test_csv_analyser.py`       | `stats["val"]["mean"] == 20.0`                 |
+| 41  | Min and max correct                                      | `test_csv_analyser.py`       | `min == 10.0`, `max == 30.0`                   |
+| 42  | Non-numeric columns excluded from stats                  | `test_csv_analyser.py`       | `"name" not in stats`                          |
+| 43  | Missing values counted per column                        | `test_csv_analyser.py`       | `missing["b"] == 1`                            |
+| 44  | Zero missing values reported correctly                   | `test_csv_analyser.py`       | `missing["a"] == 0`                            |
+| 45  | Stats rounded to 4 decimal places                        | `test_csv_analyser.py`       | `val == round(val, 4)`                         |
+| 46  | Single-row CSV handled without error                     | `test_csv_analyser.py`       | `row_count == 1`                               |
+| 47  | `report.md`written to disk                               | `test_report_writer.py`      | `Path("report.md").exists()`                   |
+| 48  | Disk content matches`markdown`field                      | `test_report_writer.py`      | `disk == result.markdown`                      |
+| 49  | `report_path`is absolute                                 | `test_report_writer.py`      | `Path(report_path).is_absolute()`              |
+| 50  | File path appears in Markdown output                     | `test_report_writer.py`      | `"myfile.csv" in markdown`                     |
+| 51  | Query appears in Markdown output                         | `test_report_writer.py`      | `"What are the totals?" in markdown`           |
+| 52  | Summary appears in Markdown output                       | `test_report_writer.py`      | `"Revenue grew by 10%." in markdown`           |
+| 53  | Keywords appear in Markdown output                       | `test_report_writer.py`      | `"revenue, profit" in markdown`                |
+| 54  | Sentiment appears in Markdown output                     | `test_report_writer.py`      | `"positive (0.85)" in markdown`                |
+| 55  | Analysis appears in Markdown output                      | `test_report_writer.py`      | `"Mean value is 42." in markdown`              |
+| 56  | Report contains`# File Analysis Report`header            | `test_report_writer.py`      | `assertIn("# File Analysis Report", markdown)` |
+| 57  | Empty fields still produce valid report                  | `test_report_writer.py`      | `"# File Analysis Report" in markdown`         |
+| 58  | Returns`ReportResult`Pydantic model                      | `test_report_writer.py`      | `isinstance(result, ReportResult)`             |
+| 59  | Text-only Gemini response → report produced              | `test_agent_loop.py`         | `"# File Analysis Report" in result`           |
+| 60  | Text-only response content included in report            | `test_agent_loop.py`         | `"Direct answer here." in result`              |
+| 61  | `write_report`tool call exits loop and returns Markdown  | `test_agent_loop.py`         | `"# File Analysis Report" in result`           |
+| 62  | `write_report`call count — send_message called once only | `test_agent_loop.py`         | `send_message.call_count == 1`                 |
+| 63  | Max-iteration fallback produces report                   | `test_agent_loop.py`         | `Path("report.md").exists()`                   |
+| 64  | Unknown tool name →`{"error": ...}`dict                  | `test_agent_loop.py`         | `"error" in result`                            |
+| 65  | Tool exception →`{"error": ...}`dict                     | `test_agent_loop.py`         | `"error" in result`                            |
+| 66  | `\_dispatch`returns dict for Pydantic result             | `test_agent_loop.py`         | `isinstance(result, dict)`                     |
+| 67  | `run_agent`always returns a string                       | `test_agent_loop.py`         | `isinstance(result, str)`                      |
 
 ---
 

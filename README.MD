@@ -235,3 +235,334 @@ python main.py report.pdf "What are the main findings?"
 ```
 
 Add `--output result.md` to save the report to a file instead of printing to stdout.
+
+---
+
+---
+
+# Step 3 – 15.05
+
+---
+
+## 9. Testing Process
+
+Testing uses Python's built-in `unittest` framework across 7 test files and 83 tests. The suite runs entirely without a live `GEMINI_API_KEY` — the agent loop tests mock both `genai.configure` and `genai.GenerativeModel` so no network calls are made.
+
+**Run the suite:**
+
+```bash
+python -m pytest tests/ -v
+```
+
+**Test files and coverage:**
+
+| File                               | Module under test             | Tests  |
+| ---------------------------------- | ----------------------------- | ------ |
+| `tests/test_keyword_extractor.py`  | `tools/keyword_extractor.py`  | 13     |
+| `tests/test_sentiment_detector.py` | `tools/sentiment_detector.py` | 13     |
+| `tests/test_text_summariser.py`    | `tools/text_summariser.py`    | 10     |
+| `tests/test_file_reader.py`        | `tools/file_reader.py`        | 15     |
+| `tests/test_csv_analyser.py`       | `tools/csv_analyser.py`       | 11     |
+| `tests/test_report_writer.py`      | `tools/report_writer.py`      | 13     |
+| `tests/test_agent_loop.py`         | `agent/loop.py`               | 9      |
+| **Total**                          |                               | **83** |
+
+**Approach by layer:**
+
+- **Unit tests (tools)** — each tool is called directly with controlled inputs. Temporary files are written via `tempfile.mkdtemp()` and cleaned up with `addCleanup(os.unlink, ...)` so no artefacts persist on disk.
+- **Schema tests** — every tool test asserts the return value is an instance of its declared Pydantic model, catching contract breakage at the boundary.
+- **Edge-case tests** — each tool has at least one empty-input test, one malformed-input test, and boundary tests (e.g. exactly 4 000 words, single-row CSVs, all-stop-word strings).
+- **Agent loop tests** — `genai.GenerativeModel` is replaced with a `MagicMock` whose `send_message.side_effect` returns pre-built response objects. `genai.configure` is also patched to a no-op and `GEMINI_API_KEY` is injected via `patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"})`, so the full suite runs without the `.env` file.
+
+---
+
+## 10. Test Scenarios
+
+| #   | Scenario                                              | Test file                    | Key assertion                            |
+| --- | ----------------------------------------------------- | ---------------------------- | ---------------------------------------- |
+| 1   | Stop words produce empty keyword list                 | `test_keyword_extractor.py`  | `keywords == []`                         |
+| 2   | Keywords lowercased and punctuation stripped          | `test_keyword_extractor.py`  | `"revenue" in keywords`                  |
+| 3   | Digits excluded from keywords                         | `test_keyword_extractor.py`  | `"123" not in keywords`                  |
+| 4   | Finance topic detected from vocabulary                | `test_keyword_extractor.py`  | `"finance" in topics`                    |
+| 5   | Technology / health topics detected                   | `test_keyword_extractor.py`  | `"technology" in topics`                 |
+| 6   | Defaults to `"general"` when no topic matches         | `test_keyword_extractor.py`  | `topics == ["general"]`                  |
+| 7   | Multiple topics detected simultaneously               | `test_keyword_extractor.py`  | `len(topics) == 3`                       |
+| 8   | Max 20 keywords returned                              | `test_keyword_extractor.py`  | `len(keywords) <= 20`                    |
+| 9   | Frequency ordering respected                          | `test_keyword_extractor.py`  | `keywords[0] == "revenue"`               |
+| 10  | Empty string returns empty keywords                   | `test_keyword_extractor.py`  | `keywords == []`                         |
+| 11  | Positive text classified correctly                    | `test_sentiment_detector.py` | `sentiment == "positive"`                |
+| 12  | Negative text classified correctly                    | `test_sentiment_detector.py` | `sentiment == "negative"`                |
+| 13  | Neutral text classified correctly                     | `test_sentiment_detector.py` | `sentiment == "neutral"`                 |
+| 14  | `"not good"` → negative (negation flips positive)     | `test_sentiment_detector.py` | `sentiment == "negative"`                |
+| 15  | `"not terrible"` → positive (negation flips negative) | `test_sentiment_detector.py` | `sentiment == "positive"`                |
+| 16  | `"not good not bad"` → neutral (two negations cancel) | `test_sentiment_detector.py` | `sentiment == "neutral"`                 |
+| 17  | Empty string → neutral, confidence 0.0                | `test_sentiment_detector.py` | `confidence == 0.0`                      |
+| 18  | Confidence always in `[0.0, 1.0]`                     | `test_sentiment_detector.py` | `0.0 <= confidence <= 1.0`               |
+| 19  | Score and confidence rounded to 2 decimal places      | `test_sentiment_detector.py` | `score == round(score, 2)`               |
+| 20  | Punctuation does not break scoring                    | `test_sentiment_detector.py` | `sentiment == "positive"`                |
+| 21  | Text truncated at 4 000 words                         | `test_text_summariser.py`    | `word_count <= 4000`, ends `[truncated]` |
+| 22  | Text under limit not truncated                        | `test_text_summariser.py`    | `"[truncated]" not in cleaned_text`      |
+| 23  | Triple blank lines collapsed to double                | `test_text_summariser.py`    | `"                                       |
+
+" not in cleaned_text`|
+| 24 | Double blank lines preserved |`test_text_summariser.py`|`"
+
+" in cleaned_text`|
+| 25 | Leading/trailing whitespace stripped |`test_text_summariser.py`|`cleaned_text == "hello world"`|
+| 26 | Word count correct |`test_text_summariser.py`|`word_count == 5`|
+| 27 |`extract_keywords`and`detect_sentiment`re-exported |`test_text_summariser.py`|`callable(extract_keywords)`|
+| 28 |`.txt`file read as string |`test_file_reader.py`|`isinstance(content, str)`|
+| 29 |`.md`file read as string, content preserved |`test_file_reader.py`|`"# Title" in content`|
+| 30 |`.json`file parsed to dict |`test_file_reader.py`|`isinstance(content, dict)`|
+| 31 |`.json`list parsed correctly |`test_file_reader.py`|`content == [1, 2, 3]`|
+| 32 |`.csv`content is list of dicts |`test_file_reader.py`|`isinstance(content[0], dict)`|
+| 33 |`.csv`row and column counts correct |`test_file_reader.py`|`row_count == 2`, `col_count == 3`|
+| 34 | Empty`.txt`file returns empty string |`test_file_reader.py`|`content == ""`|
+| 35 | Unsupported extension raises`ValueError`|`test_file_reader.py`|`assertRaises(ValueError)`|
+| 36 | Returns`FileReadResult`Pydantic model |`test_file_reader.py`|`isinstance(result, FileReadResult)`|
+| 37 | Column names extracted correctly |`test_csv_analyser.py`|`columns == ["name", "age", "score"]`|
+| 38 | Row and column counts correct |`test_csv_analyser.py`|`row_count == 3`, `col_count == 2`|
+| 39 | Mean / min / max / std present per numeric column |`test_csv_analyser.py`|`"mean" in stats["val"]`|
+| 40 | Mean value correct |`test_csv_analyser.py`|`stats["val"]["mean"] == 20.0`|
+| 41 | Min and max correct |`test_csv_analyser.py`|`min == 10.0`, `max == 30.0`|
+| 42 | Non-numeric columns excluded from stats |`test_csv_analyser.py`|`"name" not in stats`|
+| 43 | Missing values counted per column |`test_csv_analyser.py`|`missing["b"] == 1`|
+| 44 | Zero missing values reported correctly |`test_csv_analyser.py`|`missing["a"] == 0`|
+| 45 | Stats rounded to 4 decimal places |`test_csv_analyser.py`|`val == round(val, 4)`|
+| 46 | Single-row CSV handled without error |`test_csv_analyser.py`|`row_count == 1`|
+| 47 |`report.md`written to disk |`test_report_writer.py`|`Path("report.md").exists()`|
+| 48 | Disk content matches`markdown`field |`test_report_writer.py`|`disk == result.markdown`|
+| 49 |`report_path`is absolute |`test_report_writer.py`|`Path(report_path).is_absolute()`|
+| 50 | File path appears in Markdown output |`test_report_writer.py`|`"myfile.csv" in markdown`|
+| 51 | Query appears in Markdown output |`test_report_writer.py`|`"What are the totals?" in markdown`|
+| 52 | Summary appears in Markdown output |`test_report_writer.py`|`"Revenue grew by 10%." in markdown`|
+| 53 | Keywords appear in Markdown output |`test_report_writer.py`|`"revenue, profit" in markdown`|
+| 54 | Sentiment appears in Markdown output |`test_report_writer.py`|`"positive (0.85)" in markdown`|
+| 55 | Analysis appears in Markdown output |`test_report_writer.py`|`"Mean value is 42." in markdown`|
+| 56 | Report contains`# File Analysis Report`header |`test_report_writer.py`|`assertIn("# File Analysis Report", markdown)`|
+| 57 | Empty fields still produce valid report |`test_report_writer.py`|`"# File Analysis Report" in markdown`|
+| 58 | Returns`ReportResult`Pydantic model |`test_report_writer.py`|`isinstance(result, ReportResult)`|
+| 59 | Text-only Gemini response → report produced |`test_agent_loop.py`|`"# File Analysis Report" in result`|
+| 60 | Text-only response content included in report |`test_agent_loop.py`|`"Direct answer here." in result`|
+| 61 |`write_report`tool call exits loop and returns Markdown |`test_agent_loop.py`|`"# File Analysis Report" in result`|
+| 62 |`write_report`call count — send_message called once only |`test_agent_loop.py`|`send_message.call_count == 1`|
+| 63 | Max-iteration fallback produces report |`test_agent_loop.py`|`Path("report.md").exists()`|
+| 64 | Unknown tool name →`{"error": ...}`dict |`test_agent_loop.py`|`"error" in result`|
+| 65 | Tool exception →`{"error": ...}`dict |`test_agent_loop.py`|`"error" in result`|
+| 66 |`\_dispatch`returns dict for Pydantic result |`test_agent_loop.py`|`isinstance(result, dict)`|
+| 67 |`run_agent`always returns a string |`test_agent_loop.py`|`isinstance(result, str)` |
+
+---
+
+## 11. Deployment Preparation
+
+The system is a self-contained Python package with no server, database, or build step required. Running it involves three steps:
+
+**1. Install dependencies**
+
+```bash
+pip install -r requirements.txt
+```
+
+This installs `google-generativeai`, `pydantic`, `pandas`, and `pdfplumber`. Python 3.11 or later is required.
+
+**2. Set the API key**
+
+```bash
+export GEMINI_API_KEY=your_key_here   # Linux / macOS
+set GEMINI_API_KEY=your_key_here      # Windows CMD
+$env:GEMINI_API_KEY="your_key_here"   # Windows PowerShell
+```
+
+The key is read at startup by `main.py` via `os.environ`; the application exits immediately with a clear message if it is absent.
+
+**3. Run**
+
+```bash
+python main.py <file_path> "<query>"
+python main.py <file_path> "<query>" --output result.md
+```
+
+No containerisation or deployment pipeline is needed for the current scope. If the project were to be packaged for wider distribution the natural next steps would be:
+
+- Add a `pyproject.toml` and expose a `file-agent` console script entry point so users can run `file-agent report.pdf "..."` after `pip install`.
+- Add a `Dockerfile` with `COPY . .` + `RUN pip install -r requirements.txt` for reproducible environments.
+- Store the API key in a `.env` file and load it with `python-dotenv` so it persists across shell sessions without manual exporting.
+
+---
+
+## 12. Data Conversion & Porting
+
+The agent handles five distinct input formats and applies a format-specific conversion at the `file_reader.py` boundary so that all downstream tools operate on uniform Python types.
+
+### Input → internal representation
+
+| Format         | Conversion                                                  | Internal type |
+| -------------- | ----------------------------------------------------------- | ------------- |
+| `.txt` / `.md` | `pathlib.Path.read_text()`                                  | `str`         |
+| `.pdf`         | `pdfplumber` page-by-page text extraction, joined with `\n` | `str`         |
+| `.csv`         | `pandas.read_csv()` → `DataFrame.to_dict(orient="records")` | `list[dict]`  |
+| `.json`        | `json.loads(Path.read_text())`                              | `dict`        |
+
+All formats return a `FileReadResult` Pydantic model. The `content` field is typed as `Any` to accommodate both `str` and structured types; downstream tools receive only what they need (text tools get the string, `csv_analyser` re-reads the file path directly with `pd.read_csv`).
+
+### Text normalisation pipeline
+
+Before any text-based tool runs, `text_summariser.summarise()` applies a lightweight normalisation pass:
+
+1. `re.sub(r"\n{3,}", "\n\n", text)` — collapses runs of three or more blank lines to a single blank line, removing PDF extraction artefacts and inconsistent line spacing.
+2. `.strip()` — removes leading/trailing whitespace.
+3. Word-count truncation to 4 000 words — prevents oversized payloads from being sent to Gemini and keeps tool result JSON within the API's context limits.
+
+### Serialisation for Gemini
+
+Tool results (Pydantic models) cannot be sent directly over the Gemini API. The conversion chain is:
+
+```
+Pydantic model  →  .model_dump()  →  dict  →  json.dumps(default=str)  →  JSON string
+```
+
+`default=str` handles any non-serialisable values (e.g. `numpy.float64` from pandas, `pathlib.Path` objects) by converting them to their string representation, ensuring the agent loop never raises a serialisation error regardless of what a tool returns.
+
+---
+
+---
+
+# Step 3 – 15.05 (updated)
+
+---
+
+## 9. Testing Process
+
+Testing uses Python's built-in `unittest` framework with five test files covering every module that contains logic. The agent loop tests use `unittest.mock` to patch the Gemini API, so the full suite runs without a live `GEMINI_API_KEY`.
+
+**Run all tests:**
+
+```bash
+pip install pytest        # one-time
+pytest tests/ -v
+```
+
+**Test files:**
+
+| File                               | Module under test             | Tests  |
+| ---------------------------------- | ----------------------------- | ------ |
+| `tests/test_keyword_extractor.py`  | `tools/keyword_extractor.py`  | 13     |
+| `tests/test_sentiment_detector.py` | `tools/sentiment_detector.py` | 13     |
+| `tests/test_text_summariser.py`    | `tools/text_summariser.py`    | 10     |
+| `tests/test_file_reader.py`        | `tools/file_reader.py`        | 15     |
+| `tests/test_csv_analyser.py`       | `tools/csv_analyser.py`       | 11     |
+| `tests/test_report_writer.py`      | `tools/report_writer.py`      | 13     |
+| `tests/test_agent_loop.py`         | `agent/loop.py`               | 9      |
+| **Total**                          |                               | **74** |
+
+**Approach by layer:**
+
+- **Unit tests (tools)** — each tool function is called directly with controlled inputs. Temporary files are written to `tempfile.mkdtemp()` directories and cleaned up via `addCleanup(os.unlink, ...)` so no test artefacts persist on disk.
+- **Schema tests** — every tool test asserts the return value is an instance of its declared Pydantic model, catching any `model_dump` contract breakage early.
+- **Edge-case tests** — each tool has at least one empty-input test, one malformed-input test, and boundary tests (e.g. exactly 4 000 words, single-row CSVs, all-stop-word strings).
+- **Integration tests (agent loop)** — `unittest.mock.patch` replaces `genai.GenerativeModel` with a `MagicMock` whose `chat.send_message.side_effect` returns pre-built response objects. This lets the three exit paths (text-only fallback, `write_report` call, max-iteration fallback) and `_dispatch` error handling all be tested without touching the network.
+
+---
+
+## 10. Test Scenarios
+
+| #   | Scenario                                              | File                         | Key assertion                                 |
+| --- | ----------------------------------------------------- | ---------------------------- | --------------------------------------------- |
+| 1   | Stop words produce empty keyword list                 | `test_keyword_extractor.py`  | `keywords == []`                              |
+| 2   | Keywords lowercased and punctuation stripped          | `test_keyword_extractor.py`  | `"revenue" in keywords`                       |
+| 3   | Finance topic detected from vocabulary                | `test_keyword_extractor.py`  | `"finance" in topics`                         |
+| 4   | Defaults to `"general"` topic                         | `test_keyword_extractor.py`  | `topics == ["general"]`                       |
+| 5   | Max 20 keywords returned                              | `test_keyword_extractor.py`  | `len(keywords) <= 20`                         |
+| 6   | Frequency ordering respected                          | `test_keyword_extractor.py`  | `keywords[0] == "revenue"`                    |
+| 7   | Positive text classified correctly                    | `test_sentiment_detector.py` | `sentiment == "positive"`                     |
+| 8   | Negative text classified correctly                    | `test_sentiment_detector.py` | `sentiment == "negative"`                     |
+| 9   | `"not good"` → negative (negation)                    | `test_sentiment_detector.py` | `sentiment == "negative"`                     |
+| 10  | `"not terrible"` → positive (negation)                | `test_sentiment_detector.py` | `sentiment == "positive"`                     |
+| 11  | `"not good not bad"` → neutral (two negations cancel) | `test_sentiment_detector.py` | `sentiment == "neutral"`                      |
+| 12  | Empty string → neutral, confidence 0.0                | `test_sentiment_detector.py` | `confidence == 0.0`                           |
+| 13  | Confidence always in [0, 1]                           | `test_sentiment_detector.py` | `0.0 <= confidence <= 1.0`                    |
+| 14  | Text truncated at 4 000 words                         | `test_text_summariser.py`    | `word_count <= 4000`, ends with `[truncated]` |
+| 15  | Text under limit not truncated                        | `test_text_summariser.py`    | `"[truncated]" not in cleaned_text`           |
+| 16  | Triple blank lines collapsed                          | `test_text_summariser.py`    | `"\n\n\n" not in cleaned_text`                |
+| 17  | `extract_keywords` and `detect_sentiment` re-exported | `test_text_summariser.py`    | `callable(extract_keywords)`                  |
+| 18  | `.txt` file content read as string                    | `test_file_reader.py`        | `isinstance(content, str)`                    |
+| 19  | `.json` file parsed to dict                           | `test_file_reader.py`        | `isinstance(content, dict)`                   |
+| 20  | `.csv` file returns list of dicts + row/col counts    | `test_file_reader.py`        | `row_count == 2`, `col_count == 3`            |
+| 21  | Unsupported extension raises `ValueError`             | `test_file_reader.py`        | `assertRaises(ValueError)`                    |
+| 22  | CSV mean/min/max/std correct                          | `test_csv_analyser.py`       | `stats["val"]["mean"] == 20.0`                |
+| 23  | Non-numeric columns excluded from stats               | `test_csv_analyser.py`       | `"name" not in stats`                         |
+| 24  | Missing values counted per column                     | `test_csv_analyser.py`       | `missing["b"] == 1`                           |
+| 25  | Stats rounded to 4 decimal places                     | `test_csv_analyser.py`       | `val == round(val, 4)`                        |
+| 26  | `report.md` written to disk                           | `test_report_writer.py`      | `Path("report.md").exists()`                  |
+| 27  | Disk content matches `markdown` field                 | `test_report_writer.py`      | `disk == result.markdown`                     |
+| 28  | `report_path` is absolute                             | `test_report_writer.py`      | `Path(report_path).is_absolute()`             |
+| 29  | All input fields appear in Markdown output            | `test_report_writer.py`      | `assertIn` for each field                     |
+| 30  | Empty fields still produce valid report               | `test_report_writer.py`      | `"# File Analysis Report" in markdown`        |
+| 31  | Text-only Gemini response → report produced           | `test_agent_loop.py`         | `"# File Analysis Report" in result`          |
+| 32  | `write_report` tool call exits loop immediately       | `test_agent_loop.py`         | `send_message.call_count == 2`                |
+| 33  | Max-iteration fallback → report produced              | `test_agent_loop.py`         | `Path("report.md").exists()`                  |
+| 34  | Unknown tool name → `{"error": ...}` dict             | `test_agent_loop.py`         | `"error" in result`                           |
+| 35  | Tool exception → `{"error": ...}` dict                | `test_agent_loop.py`         | `"error" in result`                           |
+| 36  | `_dispatch` returns dict for Pydantic result          | `test_agent_loop.py`         | `isinstance(result, dict)`                    |
+| 37  | `run_agent` always returns a string                   | `test_agent_loop.py`         | `isinstance(result, str)`                     |
+
+---
+
+## 11. Deployment Preparation
+
+The system is a self-contained Python package with no server, database, or build step required. Running it involves three steps:
+
+**1. Install dependencies**
+
+```bash
+pip install -r requirements.txt
+```
+
+This installs `google-generativeai`, `pydantic`, `pandas`, and `pdfplumber`. Python 3.11 or later is required.
+
+**2. Set the API key**
+
+```bash
+export GEMINI_API_KEY=your_key_here   # Linux / macOS
+set GEMINI_API_KEY=your_key_here      # Windows CMD
+$env:GEMINI_API_KEY="your_key_here"   # Windows PowerShell
+```
+
+**3. Run**
+
+```bash
+python main.py <file_path> "<query>"
+python main.py <file_path> "<query>" --output result.md
+```
+
+For wider distribution, natural next steps would be adding a `pyproject.toml` console script entry point, a `Dockerfile`, and `python-dotenv` for persistent key management.
+
+---
+
+## 12. Data Conversion & Porting
+
+### Input → internal representation
+
+| Format         | Conversion                                                  | Internal type |
+| -------------- | ----------------------------------------------------------- | ------------- |
+| `.txt` / `.md` | `pathlib.Path.read_text()`                                  | `str`         |
+| `.pdf`         | `pdfplumber` page-by-page extraction joined with `\n`       | `str`         |
+| `.csv`         | `pandas.read_csv()` → `DataFrame.to_dict(orient="records")` | `list[dict]`  |
+| `.json`        | `json.loads(Path.read_text())`                              | `dict`        |
+
+### Text normalisation pipeline
+
+`text_summariser.summarise()` applies three steps before any tool receives text:
+
+1. `re.sub(r"\n{3,}", "\n\n", text)` — collapses excessive blank lines
+2. `.strip()` — removes leading/trailing whitespace
+3. Truncation to 4 000 words — keeps Gemini payloads within context limits
+
+### Serialisation for Gemini
+
+```
+Pydantic model  →  .model_dump()  →  dict  →  json.dumps(default=str)  →  JSON string
+```
+
+`default=str` handles non-serialisable values (`numpy.float64`, `pathlib.Path`) without raising.

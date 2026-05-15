@@ -1,4 +1,6 @@
 google-generativeai>=0.8.6
 pydantic>=2.13.4
 pandas>=3.0.3
-pdfplumber>=0.11.9
+pdfplumber>=0.11.
+python-dotenv>=1.2.2
+pytest>=9.0.3

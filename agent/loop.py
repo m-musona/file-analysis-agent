@@ -7,9 +7,6 @@ from tools.sentiment_detector import detect_sentiment
 from tools.csv_analyser import analyse_csv
 from tools.report_writer import write_report
 
-if os.environ.get("GEMINI_API_KEY"):
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-
 TOOLS = {
     "read_file": (read_file, {"file_path": {"type": "string"}}),
     "summarise": (summarise, {"text": {"type": "string"}}),
@@ -69,6 +66,7 @@ def _dispatch(call) -> dict:
 
 def run_agent(file_path: str, query: str, max_iterations: int = 10) -> str:
     """Run the agent loop; always returns a structured Markdown report string."""
+    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
     model = genai.GenerativeModel(
         "gemini-1.5-flash", tools=TOOL_DECLARATIONS, system_instruction=SYSTEM_PROMPT
     )

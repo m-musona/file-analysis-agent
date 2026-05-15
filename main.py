@@ -1,6 +1,10 @@
 import os, sys, argparse
 from agent.loop import run_agent
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 def main():
     p = argparse.ArgumentParser(description="AI file analysis agent")

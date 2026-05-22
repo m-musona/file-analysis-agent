@@ -1,6 +1,6 @@
 # File Analysis Agent
 
-### Step 1 – 24.04 | Step 2 – 08.05
+### Step 1 – 24.04 | Step 2 – 08.05 | Step 3 – 15.05 | Final – 22.05
 
 ---
 
@@ -562,3 +562,263 @@ Pydantic model  →  .model_dump()  →  dict  →  json.dumps(default=str)  →
 ```
 
 `default=str` handles non-serialisable values (`numpy.float64`, `pathlib.Path`) without raising.
+
+---
+
+---
+
+# Final Submission – 22.05
+
+---
+
+## 13. Final System Description & Goal
+
+The File Analysis Agent is a command-line Python application that accepts a local file path and a natural-language question, runs a Gemini-powered agent loop to analyse the file using specialised local tools, and always produces a structured Markdown report (`report.md`) as its output.
+
+The system supports five file formats (`.txt`, `.md`, `.pdf`, `.csv`, `.json`) and six analysis capabilities: file reading, text cleaning and summarisation, keyword extraction with topic classification, lexicon-based sentiment detection, CSV statistical analysis, and structured report generation. All six capabilities are exposed to Gemini as callable tools via the function-calling API; the model decides autonomously which tools to invoke and in what order based on the user's query.
+
+The project goal is to demonstrate an agentic AI architecture where reasoning (what to do next) is delegated to an LLM, while execution (actually doing it) is handled by deterministic, testable Python functions. The result is a system that can answer arbitrary questions about arbitrary files without any query-specific branching logic in the application code itself.
+
+**Final project structure:**
+
+```
+file-analysis-agent/
+├── main.py                     # CLI entry point
+├── agent/
+│   └── loop.py                 # agent loop, tool registry, Gemini orchestration
+├── models/
+│   └── schemas.py              # Pydantic data contracts (6 models)
+├── tools/
+│   ├── file_reader.py          # .txt / .md / .pdf / .csv / .json reader
+│   ├── text_summariser.py      # text cleaning, truncation, re-exports
+│   ├── keyword_extractor.py    # stop-word filtering, topic classification
+│   ├── sentiment_detector.py   # negation-aware lexicon sentiment
+│   ├── csv_analyser.py         # descriptive statistics via pandas
+│   └── report_writer.py        # Markdown assembly, disk write
+├── tests/
+│   ├── test_file_reader.py
+│   ├── test_text_summariser.py
+│   ├── test_keyword_extractor.py
+│   ├── test_sentiment_detector.py
+│   ├── test_csv_analyser.py
+│   ├── test_report_writer.py
+│   └── test_agent_loop.py
+├── requirements.txt
+└── pytest.ini
+```
+
+---
+
+## 14. Final Programming Concepts & Their Usage
+
+### Language & runtime
+
+- **Python 3.11+** — the entire codebase uses modern Python: `match`-free but relies on walrus-operator-free conditional chains, f-strings throughout, `pathlib` for all file I/O, and built-in `|` set union (`POS | NEG` in `sentiment_detector.py`).
+- **Type hints** — every function signature is fully annotated (`str`, `dict`, `list[str]`, `Optional[int]`). Pydantic enforces these at runtime on model instantiation.
+
+### Object-oriented & data modelling
+
+- **Pydantic `BaseModel` subclasses** (`models/schemas.py`) — six models (`FileReadResult`, `SummaryResult`, `KeywordResult`, `SentimentResult`, `CSVAnalysisResult`, `ReportResult`) act as typed data contracts between every tool and the agent loop. `model_dump()` serialises them to plain dicts for JSON encoding.
+- **`Optional` fields** — `FileReadResult.row_count` and `col_count` are `Optional[int] = None` so text-format files don't carry meaningless zero counts.
+
+### Functional & dispatch patterns
+
+- **Dict dispatch table** (`TOOLS` in `loop.py`) — maps tool name strings to `(function, param_schema)` tuples. Both the Gemini `FunctionDeclaration` list and the runtime dispatcher are derived from this single dict, so tool registration and schema declaration are always in sync.
+- **Generator expressions** — used throughout for concise one-liners: `"\n".join(page.extract_text() or "" for page in pdf.pages)`, `[p.function_call for p in response.parts if p.function_call.name]`.
+
+### Error handling & defensive coding
+
+- **`try/except` in `_dispatch()`** — every tool call is wrapped; exceptions are caught and returned as `{"error": str(e)}` dicts so the agent loop never crashes on a single bad tool call. Gemini receives the error as a tool result and can decide how to proceed.
+- **Three guaranteed exit paths** in `run_agent`: normal `write_report` call, text-only Gemini response (no tool calls), and max-iteration cap. All three routes through `write_report`, so a `report.md` is always written and a Markdown string is always returned.
+- **`hasattr(result, "model_dump")` guard** — handles both Pydantic model returns and plain error dicts from the same dispatch function without `isinstance` checks.
+
+### File I/O & standard library
+
+- **`pathlib.Path`** — used in `file_reader.py` (`p.read_text()`, `p.suffix`) and `report_writer.py` (`out.write_text(md)`, `out.resolve()`).
+- **`argparse`** — `main.py` declares three arguments (`file`, `query`, `--output`) with built-in help text generation.
+- **`os.environ`** — `GEMINI_API_KEY` is read at `run_agent` call time (not import time) so the module is safely importable in tests without the key present.
+- **`re`, `string`, `collections.Counter`, `datetime`** — used respectively for blank-line normalisation, punctuation stripping, keyword frequency ranking, and report timestamp generation.
+
+### External libraries
+
+- **`google-generativeai`** — SDK for Gemini multi-turn chat sessions, `FunctionDeclaration` schema building, `FunctionResponse` result injection, and `system_instruction` prompting.
+- **`pydantic` v2** — runtime type validation, `.model_dump()` serialisation, `Optional` and `Any` field types.
+- **`pandas`** — `read_csv`, `select_dtypes(include="number")`, `.agg(["mean","min","max","std"])`, `.isnull().sum()` in `csv_analyser.py`.
+- **`pdfplumber`** — context-manager PDF reading, per-page `.extract_text()` in `file_reader.py`.
+
+### Testing
+
+- **`unittest` + `unittest.mock`** — `MagicMock`, `patch`, `patch.dict` used to mock `genai.GenerativeModel`, `genai.configure`, and `os.environ` so all 83 tests run without a network connection or API key.
+- **`tempfile` + `addCleanup`** — every test that writes to disk uses `tempfile.mkdtemp()` and `os.chdir()` so no test artefacts persist between runs.
+
+---
+
+## 15. Final Tool Descriptions & Roles
+
+| Tool               | File                          | Role in the system                                                                                                                                                                                                                                                                          |
+| ------------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `read_file`        | `tools/file_reader.py`        | **Entry point for all file content.** Detects the file extension, applies the appropriate parser (plain read, pdfplumber, pandas, json.loads), and returns a `FileReadResult`. Always the first tool Gemini calls.                                                                          |
+| `summarise`        | `tools/text_summariser.py`    | **Text normalisation gate.** Collapses blank lines, strips whitespace, truncates to 4 000 words, and returns a `SummaryResult` with `cleaned_text` and `word_count`. Called after `read_file` for any text-format file before further analysis.                                             |
+| `extract_keywords` | `tools/keyword_extractor.py`  | **Topic identification.** Strips stop words and punctuation, ranks tokens by frequency with `Counter`, maps the top 20 to five predefined topic categories (finance, technology, health, legal, science). Returns a `KeywordResult`.                                                        |
+| `detect_sentiment` | `tools/sentiment_detector.py` | **Tone analysis.** Walks tokens with a negation flag, scores words against POS/NEG lexicons, normalises to a `[-1, 1]` score and `[0, 1]` confidence. Returns a `SentimentResult` with `sentiment`, `score`, and `confidence`.                                                              |
+| `analyse_csv`      | `tools/csv_analyser.py`       | **Structured data analysis.** Reads the CSV with pandas, computes mean/min/max/std for every numeric column, counts nulls per column. Returns a `CSVAnalysisResult`. Called instead of (or alongside) `summarise` for `.csv` files.                                                         |
+| `write_report`     | `tools/report_writer.py`      | **Mandatory final step.** Assembles all findings into a timestamped Markdown document, writes `report.md` to disk, and returns a `ReportResult`. Gemini is instructed via `system_instruction` to always end by calling this tool. Its `markdown` field is the return value of `run_agent`. |
+
+### How tools connect through the agent loop
+
+```
+User query + file path
+        │
+        ▼
+  Gemini (gemini-1.5-flash)
+        │  decides tool order
+        ▼
+  read_file ──► summarise ──► extract_keywords
+                           └──► detect_sentiment
+        │
+        ▼  (if .csv)
+  analyse_csv
+        │
+        ▼
+  write_report  ◄── all findings compiled as strings
+        │
+        ▼
+  report.md  +  Markdown string returned to main.py
+```
+
+---
+
+## 16. Final Testing Results & Conclusions
+
+### Results
+
+```
+platform win32 -- Python 3.14.2, pytest-9.0.3
+collected 83 items
+
+tests/test_agent_loop.py          9 passed
+tests/test_csv_analyser.py       11 passed
+tests/test_file_reader.py        15 passed
+tests/test_keyword_extractor.py  13 passed
+tests/test_report_writer.py      13 passed
+tests/test_sentiment_detector.py 13 passed
+tests/test_text_summariser.py    10 passed
+
+83 passed in ~2s
+```
+
+All 83 tests pass. No test requires a live API key or network connection.
+
+### What the tests cover
+
+- **All six tool modules** — tested in isolation with controlled inputs, covering happy paths, empty inputs, boundary values, and error conditions.
+- **All three `run_agent` exit paths** — text-only response, `write_report` tool call, and max-iteration fallback are each tested with a mocked Gemini.
+- **`_dispatch` error handling** — unknown tool names and tool exceptions both produce `{"error": ...}` dicts without crashing the loop.
+- **Pydantic contracts** — every tool test asserts the return type is the declared Pydantic model, catching schema breakage at the boundary.
+
+### Conclusions
+
+The mock-based approach for the agent loop tests was the most significant testing challenge. `genai.configure` executes at `run_agent` call time and needed to be patched alongside `GenerativeModel` — patching only the model constructor was insufficient. The fix (`patch("agent.loop.genai.configure")` + `patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"})`) makes the full suite runnable in any environment.
+
+The lexicon-based sentiment and keyword tools are deliberately simple — they have no external model dependency, which makes them fully deterministic and easy to test. The trade-off is limited accuracy on nuanced text; a production version would replace these with a small transformer model or an external NLP API.
+
+---
+
+## 17. Deployment Preparation
+
+### Running locally
+
+```bash
+# 1. Clone and enter the project
+git clone <repo-url>
+cd file-analysis-agent
+
+# 2. Create and activate a virtual environment
+python -m venv venv
+venv\Scripts\activate      # Windows
+source venv/bin/activate   # Linux / macOS
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Add your API key to .env
+echo GEMINI_API_KEY=your_key_here > .env
+
+# 5. Load the key and run
+export $(cat .env | xargs)                              # Linux / macOS
+Get-Content .env | ForEach-Object { $env:$(($_)) }     # PowerShell
+
+python main.py report.pdf "What are the main findings?"
+python main.py data.csv "Summarise the data" --output result.md
+```
+
+### Running the tests
+
+```bash
+python -m pytest tests/ -v          # full suite — no API key needed
+python -m pytest tests/ -q          # quiet summary only
+python -m pytest tests/test_csv_analyser.py -v   # single file
+```
+
+### Requirements
+
+| Requirement         | Version        |
+| ------------------- | -------------- |
+| Python              | 3.11+          |
+| google-generativeai | ≥ 0.5.0        |
+| pydantic            | ≥ 2.0          |
+| pandas              | ≥ 2.0          |
+| pdfplumber          | ≥ 0.10         |
+| pytest              | any (dev only) |
+
+---
+
+## 18. Deployment Strategy
+
+The current form of the project is a **local CLI tool** — the intended deployment strategy for this scope. No server, container, or cloud infrastructure is required; the user runs it directly in a terminal against files on their own machine.
+
+### Proposed path for wider distribution
+
+**Stage 1 — Installable package (immediate next step)**
+Add `pyproject.toml` with a `[project.scripts]` entry point:
+
+```toml
+[project.scripts]
+file-agent = "main:main"
+```
+
+After `pip install .` users run `file-agent report.pdf "..."` from anywhere without specifying `python main.py`.
+
+**Stage 2 — Containerised CLI**
+A `Dockerfile` wraps the package for reproducible environments:
+
+```dockerfile
+FROM python:3.12-slim
+WORKDIR /app
+COPY . .
+RUN pip install -r requirements.txt
+ENTRYPOINT ["python", "main.py"]
+```
+
+Run with: `docker run --env-file .env -v $(pwd):/data file-agent /data/report.pdf "query"`
+
+**Stage 3 — REST API wrapper (optional)**
+Wrap `run_agent` in a FastAPI endpoint for programmatic access:
+
+```python
+@app.post("/analyse")
+async def analyse(file: UploadFile, query: str) -> dict:
+    ...
+    return {"report": run_agent(tmp_path, query)}
+```
+
+This enables integration into web applications or pipelines without CLI access.
+
+**API key management across stages**
+| Stage | Key storage |
+|---|---|
+| Local CLI | `.env` file, loaded manually or via `python-dotenv` |
+| Docker | `--env-file .env` at `docker run` time |
+| REST API | Environment variable injected by the hosting platform (Railway, Render, Fly.io) |
+
+The `google-generativeai` package is also flagged as deprecated in favour of `google-genai`. Migrating to the new SDK is recommended before any Stage 2 or 3 deployment to avoid depending on an unsupported library.
